@@ -29,7 +29,7 @@ def loginBB(session, login_url):
         print("\n로그인 페이지를 가져오는 중입니다..")
         html = getHTML(session, login_url, data=data)
 
-        if html.find("The username or password you entered is incorrect.") != -1:
+        if html.find("Global Menu") == -1 and html.find("redirected to another page") == -1:
             print("올바르지 못한 ID와 비밀번호 입니다 :(")
             print("다시 입력해주세요...\n")
             continue
