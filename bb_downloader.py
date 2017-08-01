@@ -1,6 +1,7 @@
 import re
 import time
 import os
+from sys import exit
 from base64 import b64encode as b64
 from getpass import getpass
 import queue  # for pyinstaller
@@ -30,7 +31,9 @@ def getFile(session, url, data=None):
     count = 0
     while True:
         try:
-            my_file = session.post(url, data=data).content
+            p = session.post(url, data=data)
+            my_file = p.content
+            last_url = p.url
         except:
             if count > 5:
                 print("인터넷 연결을 확인하신 후 다시 실행시켜주세요...")
@@ -42,8 +45,8 @@ def getFile(session, url, data=None):
             time.sleep(1)
             continue
         else:
-            print("파일 다운도르 성공!\n")
-            return my_file
+            print("파일 다운로드 성공!\n")
+            return my_file, last_url
 
 def loginBB(session):
     login_url = "http://bb.unist.ac.kr"
@@ -94,11 +97,15 @@ def printCourse(course_list):
 def getCourseInput(course_num):
     while True:
         try:
-            n = int(input("무슨 과목을 다운로드할까요? (1-"+str(course_num)+"): "))
+            n = input("무슨 과목을 다운로드할까요? (1-"+str(course_num)+", 나가려면 q): ")
+            n = int(n)
             if n < 1 or n > course_num:
                 print("1부터 " + str(course_num) + "까지의 정수만 입력해 주세요!!")
                 continue
         except ValueError:
+            if n == 'q':
+                print("\n잘가요!")
+                exit(0)
             print("정수만 입력해주세요!")
             continue
         break
@@ -151,14 +158,15 @@ def getMenuInput(menu_num):
 
 def getMenuContents(html, menu_name, dir_path):
     soup = BeautifulSoup(html, 'html.parser')
+    s = soup.find("div", class_="contentBox")
+    s = BeautifulSoup(s.prettify(), 'html.parser')
     try:
-        for i in soup.find_all("img"):
+        for i in s.find_all("img"):
             i.decompose()
-        soup.find("div", class_="localViewToggle clearfix").decompose()
+        s.find("div", class_="localViewToggle clearfix").decompose()
     except:
         pass
 
-    s = soup.find("div", class_="contentBox")
     if os.path.exists(os.path.join(dir_path, menu_name)):
         dir_path = os.path.join(dir_path, menu_name)
 
@@ -171,19 +179,36 @@ def getMenuContents(html, menu_name, dir_path):
 
 def downloadFiles(session, html, menu_name, dir_path):
     soup = BeautifulSoup(html, 'html.parser')
-    s = soup.find_all("ul", class_="attachments clearfix")
-    if len(s) == 0:
+    soup = soup.find("div", class_="contentBox")
+
+    attached_s = soup.find_all("ul", class_="attachments clearfix")
+    title_s = soup.select('.item a')
+    if len(attached_s) == 0 and len(title_s) == 0:
         return
     
     dir_path = os.path.join(dir_path, menu_name)
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     
-    for i in s:
+    for i in attached_s:
         file_url = "http://bb.unist.ac.kr" + i.li.a["href"]
         file_name = i.li.a.text[1:]  # 맨 앞에 띄어쓰기 하나 있어서 지움
         print(file_name, "를 다운로드하는 중입니다...")
-        my_file = getFile(session, file_url)
+        my_file = getFile(session, file_url)[0]
+        file_path = os.path.join(dir_path, file_name)
+        with open(file_path, 'wb') as f:
+            f.write(my_file)
+    
+    for i in title_s:
+        file_url = "http://bb.unist.ac.kr" + i["href"]
+        file_name = i.text
+        print(file_name, "를 다운로드하는 중입니다...")
+
+        my_file, last_url = getFile(session, file_url)
+        regex = re.compile("\.[^\.]+\?")
+        filetype = regex.findall(last_url)[0][:-1]
+        file_name += filetype
+
         file_path = os.path.join(dir_path, file_name)
         with open(file_path, 'wb') as f:
             f.write(my_file)
@@ -202,11 +227,11 @@ def downloadMenu(session, menu_list, n, dir_path):
     getMenuContents(html, menu_name, dir_path)
 
 if __name__ == '__main__':
+    print("---- BB Downloader v0.2 ----")
+    session = requests.Session()
+    session = loginBB(session)
+    
     while True:
-        print("\n\n---- BB Downloader v0.1 ----")
-        session = requests.Session()
-        session = loginBB(session)
-
         course_list = getCourseList(session)
 
         printCourse(course_list)
@@ -226,3 +251,5 @@ if __name__ == '__main__':
         menu_selected = getMenuInput(menu_num)
         for i in menu_selected:
             downloadMenu(session, menu_list, i-1, dir_path)
+
+        print('\n---- 모든 다운로드 완료!! ----\n\n')
