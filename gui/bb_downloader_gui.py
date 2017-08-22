@@ -1,4 +1,7 @@
+# bb_downloader_gui.py
+
 import sys
+import multiprocessing
 import queue  # for pyinstaller
 import requests
 from PyQt5 import QtWidgets
@@ -12,6 +15,7 @@ import bb_downloader_downloadUi as downloadUi
 import bb_downloader_func as myfunc
 
 if __name__ == '__main__':
+    multiprocessing.freeze_support()  # for pyinstaller
     app = QtWidgets.QApplication(sys.argv)
     LoginWindow = QtWidgets.QMainWindow()
     ui = loginUi.Ui_LoginWindow()

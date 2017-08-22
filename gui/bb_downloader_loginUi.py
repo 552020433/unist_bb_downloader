@@ -1,44 +1,8 @@
+# bb_downloader_loginUi.py
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 import bb_downloader_func as myfunc
 import bb_downloader_mainUi as mainUi
-
-import math
-class Overlay(QtWidgets.QWidget):
-    def __init__(self, parent = None):
-        QtWidgets.QWidget.__init__(self, parent)
-        palette = QtGui.QPalette(self.palette())
-        palette.setColor(palette.Background, QtCore.Qt.transparent)
-        self.setPalette(palette)
-    
-    def paintEvent(self, event):
-        painter = QtGui.QPainter()
-        painter.begin(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        painter.fillRect(self.parent().rect(), QtGui.QBrush(QtGui.QColor(255, 255, 255, 127)))
-        painter.setPen(QtGui.QPen(QtCore.Qt.NoPen))
-
-        for i in range(6):
-            if (self.counter / 5) % 6 == i:
-                painter.setBrush(QtGui.QBrush(QtGui.QColor(127 + (self.counter % 5)*32, 127, 127)))
-            else:
-                painter.setBrush(QtGui.QBrush(QtGui.QColor(127, 127, 127)))
-            painter.drawEllipse(
-                self.width()/2 + 30 * math.cos(2 * math.pi * i / 6.0) - 10,
-                self.height()/2 + 30 * math.sin(2 * math.pi * i / 6.0) - 10,
-                20, 20)
-        
-        painter.end()
-
-    def showEvent(self, event):
-        self.timer = self.startTimer(50)
-        self.counter = 0
-    
-    def timerEvent(self, event):
-        self.counter += 1
-        self.update()
-        if self.counter == 60:
-            self.killTimer(self.timer)
-            self.hide()
 
 class Worker(QtCore.QThread):
     def __init__(self, account):
@@ -56,7 +20,7 @@ class Ui_LoginWindow(object):
         icon.addPixmap(QtGui.QPixmap("bb_favicon.ico"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         LoginWindow.setWindowIcon(icon)
         self.LoginWindow = LoginWindow
-        
+
         self.centralwidget = QtWidgets.QWidget(LoginWindow)
         self.centralwidget.setObjectName("centralwidget")
 
@@ -113,7 +77,7 @@ class Ui_LoginWindow(object):
 
     def retranslateUi(self, LoginWindow):
         _translate = QtCore.QCoreApplication.translate
-        LoginWindow.setWindowTitle(_translate("LoginWindow", "Login"))
+        LoginWindow.setWindowTitle(_translate("LoginWindow", "BB Downloader Login"))
         self.IDLabel.setText(_translate("LoginWindow", "학번: "))
         self.PasswdLabel.setText(_translate("LoginWindow", "비밀번호:"))
         self.TitleLabel.setText(_translate("LoginWindow", "BB 다운로더 v1.0"))
@@ -126,11 +90,11 @@ class Ui_LoginWindow(object):
 
         student_id = self.IDEdit.text()
         pw = self.PasswdEdit.text()
-        
+
         try:
             self.account = myfunc.Account(student_id, pw)
         except myfunc.LoginFail:
-            msg = QtWidgets.QMessageBox()
+            msg = QtWidgets.QMessageBox(self.LoginWindow)
             msg.setIcon(QtWidgets.QMessageBox.Critical)
             msg.setText("로그인에 실패했습니다.\n\n학번과 비밀번호를 다시 확인해주세요..")
             msg.setWindowTitle("로그인 실패..")
@@ -140,11 +104,12 @@ class Ui_LoginWindow(object):
             self.PasswdEdit.clear()
             self.LoginWindow.setEnabled(True)
             return
-        
+
         self.WaitingWindow = QtWidgets.QMessageBox(self.LoginWindow)
         self.WaitingWindow.setWindowTitle("과목 목록 불러오는 중..")
-        self.WaitingWindow.setText("과목 목록을 불러오는 중입니다.\n잠시만 기다려주세요...\n(시간이 2분 정도 걸립니다ㅠㅠ)")
-        self.WaitingWindow.setStandardButtons(QtWidgets.QMessageBox.NoButton)
+        self.WaitingWindow.setText("과목 목록을 불러오는 중입니다.\n잠시만 기다려주세요...\n(시간이 1분 정도 걸립니다)")
+        self.WaitingWindow.setStandardButtons(QtWidgets.QMessageBox.Cancel)
+        self.WaitingWindow.button(QtWidgets.QMessageBox.Cancel).clicked.connect(QtCore.QCoreApplication.instance().quit)
         self.WaitingWindow.setIcon(QtWidgets.QMessageBox.Information)
         self.WaitingWindow.show()
 

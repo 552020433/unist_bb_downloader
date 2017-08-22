@@ -206,10 +206,15 @@ def downloadFiles(session, html, menu_name, dir_path):
 
         my_file, last_url = getFile(session, file_url)
         regex = re.compile("\.[^\.]+\?")
-        filetype = regex.findall(last_url)[0][:-1]
+        try:
+            filetype = regex.findall(last_url)[0][:-1]
+        except:
+            filetype = ".pdf"
+        # file_name = file_name.replace(' ', '')
         file_name += filetype
 
         file_path = os.path.join(dir_path, file_name)
+        file_path = file_path.replace('/', '_')
         with open(file_path, 'wb') as f:
             f.write(my_file)
 

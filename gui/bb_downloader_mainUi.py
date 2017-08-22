@@ -1,6 +1,7 @@
+# bb_downloader_mainUi.py
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 import bb_downloader_func as myfunc
-import bb_downloader_downloadUi as downloadUi
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow, account):
@@ -52,7 +53,9 @@ class Ui_MainWindow(object):
         self.fileTree = QtWidgets.QTreeWidget(self.centralwidget)
         self.fileTree.setGeometry(QtCore.QRect(330, 50, 411, 321))
         self.fileTree.setObjectName('fileTree')
-        self.fileTree.setColumnCount(2)
+        self.fileTree.setColumnCount(3)  # 0: 파일이름 1: 파일크기 2: 파일경로
+        self.fileTree.setColumnHidden(2, True)  # 파일경로는 숨김, 나중에 데이터 확인 용도
+
         self.fileTree.header().resizeSection(0, 300)
         self.fileTree.itemChanged.connect(self.handleFileChange)
 
@@ -78,13 +81,13 @@ class Ui_MainWindow(object):
 
         self.LoadTreeItems()
         self.retranslateUi(MainWindow)
-        QtCore.QMetaObject.connectSlotsByName(MainWindow)        
+        QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
 
     def Download(self):
         import bb_downloader_downloadUi as downloadUi
         DownloadDialog = QtWidgets.QDialog(self.MainWindow)
-        ui = downloadUi.Ui_DownloadDialog(self.download_list, self.account)
+        ui = downloadUi.Ui_DownloadDialog(DownloadDialog, self.download_list, self.account)
         ui.setupUi(DownloadDialog)
         DownloadDialog.exec_()
 
@@ -156,6 +159,7 @@ class Ui_MainWindow(object):
                 course_item.setText(0, course.name)
                 size = self.getSizeUnit(course.size)
                 course_item.setText(1, size)
+                course_item.setText(2, course.file_path)
                 course_item.setCheckState(0, QtCore.Qt.Checked)
                 course_item.setExpanded(True)
                 for menu in course:
@@ -164,14 +168,16 @@ class Ui_MainWindow(object):
                     menu_item.setText(0, menu.name)
                     size = self.getSizeUnit(menu.size)
                     menu_item.setText(1, size)
+                    menu_item.setText(2, menu.file_path)
                     menu_item.setCheckState(0, QtCore.Qt.Checked)
                     for myfile in menu:
-                        if type(myfile) == myfunc.FileList:
+                        if isinstance(myfile, myfunc.FileList):
                             filelist_item = QtWidgets.QTreeWidgetItem(menu_item)
                             filelist_item.setFlags(filelist_item.flags() | QtCore.Qt.ItemIsTristate | QtCore.Qt.ItemIsUserCheckable)
                             filelist_item.setText(0, myfile.name)
                             size = self.getSizeUnit(myfile.size)
                             filelist_item.setText(1, size)
+                            filelist_item.setText(2, myfile.file_path)
                             filelist_item.setCheckState(0, QtCore.Qt.Checked)
                             self.addFileListItem(filelist_item, myfile)
                             continue
@@ -180,6 +186,7 @@ class Ui_MainWindow(object):
                         file_item.setText(0, myfile.name)
                         size = self.getSizeUnit(myfile.size)
                         file_item.setText(1, size)
+                        file_item.setText(2, myfile.file_path)
                         file_item.setCheckState(0, QtCore.Qt.Checked)
 
             else:
@@ -187,16 +194,18 @@ class Ui_MainWindow(object):
         elif item.checkState(column) == QtCore.Qt.Unchecked:
             l = self.fileTree.findItems(item.text(0), QtCore.Qt.MatchExactly)
             if l != []:
+                l[0].setCheckState(0, QtCore.Qt.Unchecked)
                 item.parent().removeChild(l[0])
 
     def addFileListItem(self, filelist_item, filelist):
         for myfile in filelist:
-            if type(myfile) == myfunc.FileList:
+            if isinstance(myfile, myfunc.FileList):
                 _filelist_item = QtWidgets.QTreeWidgetItem(filelist_item)
                 _filelist_item.setFlags(_filelist_item.flags() | QtCore.Qt.ItemIsTristate | QtCore.Qt.ItemIsUserCheckable)
                 _filelist_item.setText(0, myfile.name)
                 size = self.getSizeUnit(myfile.size)
                 _filelist_item.setText(1, size)
+                _filelist_item.setText(2, myfile.file_path)
                 _filelist_item.setCheckState(0, QtCore.Qt.Checked)
                 self.addFileListItem(_filelist_item, myfile)
                 continue
@@ -205,26 +214,53 @@ class Ui_MainWindow(object):
             file_item.setText(0, myfile.name)
             size = self.getSizeUnit(myfile.size)
             file_item.setText(1, size)
+            file_item.setText(2, myfile.file_path)
             file_item.setCheckState(0, QtCore.Qt.Checked)
 
     def handleFileChange(self, item, column):
-        item_name = item.text(0)
+        file_path = item.text(2)
         if item.checkState(column) == QtCore.Qt.Checked:
             for course in self.account.course_list:
-                if item_name == course.name:
+                if file_path == course.file_path:
                     return
                 for menu in course:
-                    if item_name == menu.name:
+                    if file_path == menu.file_path:
+                        if menu not in self.download_list:
+                            self.download_list.append(menu)
                         return
                     for myfile in menu:
-                        if item_name == myfile.name and type(myfile) != myfunc.FileList:
+                        if file_path == myfile.file_path and isinstance(myfile, myfunc.FileList):
+                            return
+                        if isinstance(myfile, myfunc.FileList):
+                            files = []
+                            try:
+                                self.findFile(myfile, file_path, files)
+                            except ValueError:  # 찾아보니 파일 리스트
+                                return
+                            except EOFError:  # 파일 찾음
+                                self.download_list.append(files[0])
+                                return
+                        if file_path == myfile.file_path and not isinstance(myfile, myfunc.FileList):
                             self.download_list.append(myfile)
                             return
         else:
             for i in range(len(self.download_list)):
-                if item_name == self.download_list[i]:
-                    myfile.pop(i)
+                if file_path == self.download_list[i].file_path:
+                    self.download_list.pop(i)
                     return
+
+    def findFile(self, file_list, file_path, files):
+        for myfile in file_list:
+            if file_path == myfile.file_path and isinstance(myfile, myfunc.FileList):
+                raise ValueError
+
+            if isinstance(myfile, myfunc.FileList):
+                self.findFile(myfile, file_path, files)
+                continue
+
+            if myfile.file_path == file_path:
+                files.append(myfile)
+                raise EOFError
 
     def getSizeUnit(self, size):
         size = int(size)

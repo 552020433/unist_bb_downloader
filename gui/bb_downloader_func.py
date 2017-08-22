@@ -1,11 +1,52 @@
+# bb_downloader_func.py
+
 import re
 import time
 import os
+import multiprocessing
 from sys import exit
 from base64 import b64encode as b64
 from bs4 import BeautifulSoup
 import requests
 from PyQt5 import QtCore, QtGui, QtWidgets
+
+import os
+import sys
+
+## for pyinstaller
+# Module multiprocessing is organized differently in Python 3.4+
+try:
+    # Python 3.4+
+    if sys.platform.startswith('win'):
+        import multiprocessing.popen_spawn_win32 as forking
+    else:
+        import multiprocessing.popen_fork as forking
+except ImportError:
+    import multiprocessing.forking as forking
+
+if sys.platform.startswith('win'):
+    # First define a modified version of Popen.
+    class _Popen(forking.Popen):
+        def __init__(self, *args, **kw):
+            if hasattr(sys, 'frozen'):
+                # We have to set original _MEIPASS2 value from sys._MEIPASS
+                # to get --onefile mode working.
+                os.putenv('_MEIPASS2', sys._MEIPASS)
+            try:
+                super(_Popen, self).__init__(*args, **kw)
+            finally:
+                if hasattr(sys, 'frozen'):
+                    # On some platforms (e.g. AIX) 'os.unsetenv()' is not
+                    # available. In those cases we cannot delete the variable
+                    # but only set it to the empty string. The bootloader
+                    # can handle this case.
+                    if hasattr(os, 'unsetenv'):
+                        os.unsetenv('_MEIPASS2')
+                    else:
+                        os.putenv('_MEIPASS2', '')
+
+    # Second override 'Popen' class with our modified version.
+    forking.Popen = _Popen
 
 class LoginFail(Exception):
     pass
@@ -15,10 +56,10 @@ class Account():
         session = requests.Session()
         self.session = self.__loginBB(session, student_id, pw)
         self.student_id = student_id
-    
+
     def getCourseList(self):
         self.course_list = CourseList(self.session)
-    
+
     def __loginBB(self, session, student_id, pw):
         login_url = "http://bb.unist.ac.kr"
         data = { 'user_id': student_id, 'password': '', 'encoded_pw': b64(pw.encode()) }
@@ -56,18 +97,31 @@ class CourseList():
         soup = BeautifulSoup(html, 'html.parser')
         regex = re.compile("Course%26id%3D[0-9_]+")
 
+        mp_list = []
         for i in soup.find_all("a", role="menuitem"):
             u = regex.findall(i['onclick'])
             u = u[0].strip("Course%26id%3D")
-            course_list.append(Course(session, i.text,u))
+            mp_list.append((session, i.text, u))
 
+        with multiprocessing.Pool(4) as p:
+            course_list = list(p.map(Course, mp_list))
         return course_list
 
 class Course():
-    def __init__(self, session, name, course_id):
+    def __init__(self, args):
+        session = args[0]
+        name = args[1]
+        course_id = args[2]
+
         self.name = name
         self.id = course_id
-        self.__menu_list = MenuList(session, self.id)
+
+        if getattr(sys, 'frozen', False):
+            application_path = os.path.dirname(sys.executable)
+        elif __file__:
+            application_path = os.path.dirname(__file__)
+        self.file_path = os.path.join(application_path, self.name)
+        self.__menu_list = MenuList(session, self.id, self.file_path)
         self.menu_num = self.__menu_list.menu_num
         self.size = self.__getTotalSize()
 
@@ -94,8 +148,8 @@ class Course():
 class MenuList():
     not_accept_menu = ["WileyPLUS", "Discussion Board", "Messages", "Help", "Home"]
 
-    def __init__(self, session, course_id):
-        self.__menu_list = self.__getMenuList(session, course_id)
+    def __init__(self, session, course_id, file_path):
+        self.__menu_list = self.__getMenuList(session, course_id, file_path)
         self.menu_num = len(self.__menu_list)
 
     def __iter__(self):
@@ -112,24 +166,28 @@ class MenuList():
     def __getitem__(self, index):
         return self.__menu_list[index]
 
-    def __getMenuList(self, session, course_id):
+    def __getMenuList(self, session, course_id, file_path):
         course_url = "http://bb.unist.ac.kr/webapps/blackboard/execute/courseMain?task=true&src="
         menu_list = []
-        
+
         course_url = course_url + "&course_id=" + course_id
         html = getHTML(session, course_url)
         soup = BeautifulSoup(html, 'html.parser')
         for i in soup.select('.courseMenu .clearfix a'):
             if i.text in MenuList.not_accept_menu:
                 continue
-            menu_list.append(Menu(session, i.text, i['href']))
+            menu_list.append(Menu(session, i.text, i['href'], file_path))
         return menu_list
 
 class Menu():
-    def __init__(self, session, name, url):
+    def __init__(self, session, name, url, file_path):
         self.name = name
         self.url = url
-        self.__file_list = FileList(session, self.url, '')
+        if self.url.find("http://") == -1:
+            self.url = "http://bb.unist.ac.kr" + self.url
+        self.session = session
+        self.file_path = os.path.join(file_path, self.name)
+        self.__file_list = FileList(session, self.url, '', self.file_path)
         self.file_num = self.__file_list.num
         self.size = self.__getTotalSize()
 
@@ -143,7 +201,7 @@ class Menu():
             return self[self.n-1]
         else:
             raise StopIteration
-    
+
     def __getitem__(self, index):
         return self.__file_list[index]
 
@@ -153,11 +211,36 @@ class Menu():
             size += int(myfile.size)
         return str(size)
 
+    def savePage(self):
+        dir_path = os.path.dirname(self.file_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+        html = getHTML(self.session, self.url)
+        soup = BeautifulSoup(html, 'html.parser')
+        s = soup.find("div", class_="contentBox")
+        s = BeautifulSoup(s.prettify(), 'html.parser')
+        try:
+            for i in s.find_all("img"):
+                i.decompose()
+            s.find("div", class_="localViewToggle clearfix").decompose()
+        except:
+            pass
+
+        file_path = self.file_path + ".html"
+        with open(file_path, "w", encoding="utf8") as f:
+            f.write(str(s))
+
 class FileList():
-    def __init__(self, session, menu_url, name):
-        self.__file_list = self.__getFileList(session, menu_url)
-        self.num = len(self.__file_list)
+    def __init__(self, session, menu_url, name, file_path):
         self.name = name
+        if self.name == '':
+            self.file_path = file_path
+        else:
+            self.file_path = os.path.join(file_path, self.name)
+
+        self.__file_list = self.__getFileList(session, menu_url, self.file_path)
+        self.num = len(self.__file_list)
         self.size = self.__getTotalSize()
 
     def __iter__(self):
@@ -174,45 +257,52 @@ class FileList():
     def __getitem__(self, index):
         return self.__file_list[index]
 
-    def __getFileList(self, session, menu_url):
+    def __getFileList(self, session, menu_url, file_path):
         file_list = []
-        if menu_url.find("http://") == -1:
-            menu_url = "http://bb.unist.ac.kr" + menu_url
         html = getHTML(session, menu_url)
 
         soup = BeautifulSoup(html, 'html.parser')
-        soup = soup.find("div", class_="contentBox")
+        try:
+            soup = soup.find("div", class_="contentBox")
 
-        attached_s = soup.find_all("ul", class_="attachments clearfix")
-        title_s = soup.select('.item a')
+            attached_s = soup.find_all("ul", class_="attachments clearfix")
+            title_s = soup.select('.item a')
+        except: # 파일이나 파일 리스트가 아니면 에러처리
+            return []
+
         if len(attached_s) == 0 and len(title_s) == 0:
             return []
-        
+
         for i in attached_s:
             file_url = "http://bb.unist.ac.kr" + i.li.a["href"]
             file_url = self.__getFileLastUrl(session, file_url)
             file_name = i.li.a.text[1:]  # 맨 앞에 띄어쓰기 하나 있어서 지움
-            file_list.append(File(session, file_name, file_url))
-        
+            _file_path = os.path.join(file_path, file_name)
+            file_list.append(File(session, file_name, file_url, _file_path))
+
         for i in title_s:
             file_url = "http://bb.unist.ac.kr" + i["href"]
             file_name = i.text
 
             last_url = self.__getFileLastUrl(session, file_url)
             if last_url.find('webapps') != -1:
-                file_list.append(FileList(session, last_url, file_name))
+                file_list.append(FileList(session, last_url, file_name, self.file_path))
                 continue
 
-            regex = re.compile("\.[^\.]+[\?]")
+            regex = re.compile("\.[^\.]+[\?]")  # ? 있을경우
             try:
                 filetype = regex.findall(last_url)[0]
                 if filetype[-1] == '?':
                     filetype = filetype[:-1]
             except:
-                filetype = ""
+                try:
+                    regex = re.compile("\.[^\.]+")  # ? 없을경우
+                    filetype = regex.findall(last_url)[-1]
+                except:
+                    filetype = ""  # 그래도 없으면 ""
             file_name += filetype
-
-            file_list.append(File(session, file_name, last_url))
+            _file_path = os.path.join(file_path, file_name)
+            file_list.append(File(session, file_name, last_url, _file_path))
 
         return file_list
 
@@ -238,18 +328,31 @@ class FileList():
         return str(size)
 
 class File():
-    def __init__(self, session, name, url):
+    def __init__(self, session, name, url, file_path):
         self.session = session
         self.name = name
         self.url = url
+        self.file_path = file_path
         self.size = self.__getFileSize(session, url)
 
-    def __getFile(self):
+    def saveFile(self, downloadDialog, signal):
+        dir_path = os.path.dirname(self.file_path)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
         count = 0
         while True:
             try:
-                p = self.session.post(self.url)
-                my_file = p.content
+                size = int(self.size)
+                total_value = downloadDialog.TotalDownloadBar.value()
+                signal.emit(size, 0, total_value)
+                p = self.session.get(self.url, stream=True)
+
+                file_data = b''
+                for chunk in p.iter_content(chunk_size=1024*32):
+                    file_data += chunk
+                    signal.emit(size, len(file_data), total_value + len(file_data))
+                    QtCore.QCoreApplication.processEvents()
             except:
                 if count > 5:
                     errorExitMsg("파일 가져오기 실패", "파일을 가져오는데 실패했습니다.\n\n인터넷 연결을 다시 확인해주세요..")
@@ -257,13 +360,9 @@ class File():
                 time.sleep(0.1)
                 continue
             else:
-                return my_file
-
-    def saveFile(self, dir_path):
-        file_path = os.path.join(dir_path, self.name)
-        my_file = self.__getFile()
-        with open(file_path, 'wb') as f:
-            f.write(my_file)
+                with open(self.file_path, 'wb') as f:
+                    f.write(file_data)
+                return
 
     def __getFileSize(self, session, url, data=None):
         count = 0
@@ -280,7 +379,7 @@ class File():
                 file_size = p.headers['Content-Length']
             except:
                 file_size = '0'
-            
+
             return file_size
 
 
@@ -333,11 +432,11 @@ def downloadFiles(session, html, menu_name, dir_path):
     title_s = soup.select('.item a')
     if len(attached_s) == 0 and len(title_s) == 0:
         return
-    
+
     dir_path = os.path.join(dir_path, menu_name)
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
-    
+
     for i in attached_s:
         file_url = "http://bb.unist.ac.kr" + i.li.a["href"]
         file_name = i.li.a.text[1:]  # 맨 앞에 띄어쓰기 하나 있어서 지움
@@ -345,7 +444,7 @@ def downloadFiles(session, html, menu_name, dir_path):
         file_path = os.path.join(dir_path, file_name)
         with open(file_path, 'wb') as f:
             f.write(my_file)
-    
+
     for i in title_s:
         file_url = "http://bb.unist.ac.kr" + i["href"]
         file_name = i.text
@@ -370,4 +469,3 @@ def downloadMenu(session, menu_item, n, dir_path):
 
     downloadFiles(session, html, menu_name, dir_path)
     getMenuContents(html, menu_name, dir_path)
-

@@ -1,18 +1,59 @@
-# -*- coding: utf-8 -*-
-
-# Form implementation generated from reading ui file 'bb_downloader_download.ui'
-#
-# Created by: PyQt5 UI code generator 5.9
-#
-# WARNING! All changes made in this file will be lost!
+# bb_downloader_downloadUi.py
 
 from PyQt5 import QtCore, QtGui, QtWidgets
+import bb_downloader_func as myfunc
+
+class Worker(QtCore.QThread):
+    signal = QtCore.pyqtSignal(int, int, int)
+    def __init__(self, ui, parent=None):
+        super(Worker, self).__init__()
+        self.ui = ui
+
+    def run(self):
+        self.ui.downloadFiles(self.signal)
+        self.signal.emit(-1, -1, -1)  # set wellDone True
 
 class Ui_DownloadDialog(object):
-    def __init__(self, fileTree, account):
-        self.fileTree = fileTree
-        print(fileTree)
+    CurrentDownloadBar = 0
+    TotalDownloadBar = 0
+    wellDone = False
+
+    def __init__(self, DownloadDialog, file_list, account):
+        self.file_list = file_list
         self.account = account
+        self.total_size = 0
+        self.DownloadDialog = DownloadDialog
+        for myfile in file_list:
+            if isinstance(myfile, myfunc.Menu):
+                continue
+            self.total_size += int(myfile.size)
+
+    def start(self):
+        self.thread = Worker(self)
+        self.thread.signal.connect(self.setRange)
+        self.thread.start()
+        self.thread.finished.connect(self.downloadFinished)
+
+    def downloadFinished(self):
+        if Ui_DownloadDialog.wellDone:
+            NotifyWindow = QtWidgets.QMessageBox(self.DownloadDialog)
+            NotifyWindow.setWindowTitle("다운로드 성공!")
+            NotifyWindow.setText("다운로드를 전부 완료했습니다.")
+            NotifyWindow.setStandardButtons(QtWidgets.QMessageBox.Ok)
+            NotifyWindow.setIcon(QtWidgets.QMessageBox.Information)
+            NotifyWindow.show()
+            Ui_DownloadDialog.wellDone = False
+            self.DownloadDialog.close()
+
+    @classmethod
+    def setRange(cls, current_maximum, current_value, total_value):
+        if current_maximum == -1 and current_value == -1 and total_value == -1:
+            cls.wellDone = True
+            return
+
+        cls.CurrentDownloadBar.setMaximum(current_maximum)
+        cls.CurrentDownloadBar.setValue(current_value)
+        cls.TotalDownloadBar.setValue(total_value)
 
     def setupUi(self, DownloadDialog):
         DownloadDialog.setObjectName("DownloadDialog")
@@ -22,19 +63,21 @@ class Ui_DownloadDialog(object):
         icon = QtGui.QIcon()
         icon.addPixmap(QtGui.QPixmap("bb_favicon.ico"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
         DownloadDialog.setWindowIcon(icon)
-        
-        self.CurrentDownloadBar = QtWidgets.QProgressBar(DownloadDialog)
-        self.CurrentDownloadBar.setGeometry(QtCore.QRect(46, 88, 401, 23))
-        self.CurrentDownloadBar.setProperty("value", 0)
-        self.CurrentDownloadBar.setObjectName("CurrentDownloadBar")
-        
-        self.TotalDownloadBar = QtWidgets.QProgressBar(DownloadDialog)
-        self.TotalDownloadBar.setGeometry(QtCore.QRect(46, 148, 401, 23))
-        self.TotalDownloadBar.setProperty("value", 0)
-        self.TotalDownloadBar.setObjectName("TotalDownloadBar")
+
+        Ui_DownloadDialog.CurrentDownloadBar = QtWidgets.QProgressBar(DownloadDialog)
+        Ui_DownloadDialog.CurrentDownloadBar.setGeometry(QtCore.QRect(46, 88, 401, 23))
+        Ui_DownloadDialog.CurrentDownloadBar.setProperty("value", 0)
+        Ui_DownloadDialog.CurrentDownloadBar.setObjectName("CurrentDownloadBar")
+
+        Ui_DownloadDialog.TotalDownloadBar = QtWidgets.QProgressBar(DownloadDialog)
+        Ui_DownloadDialog.TotalDownloadBar.setGeometry(QtCore.QRect(46, 148, 401, 23))
+        Ui_DownloadDialog.TotalDownloadBar.setProperty("value", 0)
+        Ui_DownloadDialog.TotalDownloadBar.setObjectName("TotalDownloadBar")
+        Ui_DownloadDialog.TotalDownloadBar.setMaximum(self.total_size)
+
         self.TotalDownloadLabel = QtWidgets.QLabel(DownloadDialog)
         self.TotalDownloadLabel.setGeometry(QtCore.QRect(46, 128, 161, 16))
-        
+
         font = QtGui.QFont()
         font.setFamily("맑은 고딕")
         font.setPointSize(11)
@@ -50,7 +93,7 @@ class Ui_DownloadDialog(object):
 
         self.DownloadCancelButton = QtWidgets.QPushButton(DownloadDialog)
         self.DownloadCancelButton.setGeometry(QtCore.QRect(350, 200, 101, 31))
-        self.DownloadCancelButton.clicked.connect(self.DownloadDialog.close)
+        self.DownloadCancelButton.clicked.connect(self.downloadQuit)
 
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
@@ -73,6 +116,8 @@ class Ui_DownloadDialog(object):
         self.retranslateUi(DownloadDialog)
         QtCore.QMetaObject.connectSlotsByName(DownloadDialog)
 
+        self.start()
+
     def retranslateUi(self, DownloadDialog):
         _translate = QtCore.QCoreApplication.translate
         DownloadDialog.setWindowTitle(_translate("DownloadDialog", "Downloading..."))
@@ -80,3 +125,14 @@ class Ui_DownloadDialog(object):
         self.CurrentDownloadLabel.setText(_translate("DownloadDialog", "개별 다운로드 진행률"))
         self.DownloadCancelButton.setText(_translate("DownloadDialog", "다운로드 취소"))
         self.DownloadTitle.setText(_translate("DownloadDialog", "다운로드 중입니다..."))
+
+    def downloadFiles(self, signal):
+        for myfile in self.file_list:
+            if isinstance(myfile, myfunc.Menu):
+                myfile.savePage()
+            else:
+                myfile.saveFile(self, signal)
+
+    def downloadQuit(self):
+        self.thread.terminate()
+        self.DownloadDialog.close()
