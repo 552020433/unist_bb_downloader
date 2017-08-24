@@ -80,7 +80,7 @@ class Ui_LoginWindow(object):
         LoginWindow.setWindowTitle(_translate("LoginWindow", "BB Downloader Login"))
         self.IDLabel.setText(_translate("LoginWindow", "학번: "))
         self.PasswdLabel.setText(_translate("LoginWindow", "비밀번호:"))
-        self.TitleLabel.setText(_translate("LoginWindow", "BB 다운로더 v1.0"))
+        self.TitleLabel.setText(_translate("LoginWindow", "BB 다운로더 v1.1"))
         self.LoginButton.setText(_translate("LoginWindow", "로그인"))
         self.ExitButton.setText(_translate("LoginWindow", "나가기"))
 
@@ -107,7 +107,7 @@ class Ui_LoginWindow(object):
 
         self.WaitingWindow = QtWidgets.QMessageBox(self.LoginWindow)
         self.WaitingWindow.setWindowTitle("과목 목록 불러오는 중..")
-        self.WaitingWindow.setText("과목 목록을 불러오는 중입니다.\n잠시만 기다려주세요...\n(시간이 1분 정도 걸립니다)")
+        self.WaitingWindow.setText("과목 목록을 불러오는 중입니다.\n잠시만 기다려주세요...\n(시간이 30초 정도 걸립니다)")
         self.WaitingWindow.setStandardButtons(QtWidgets.QMessageBox.Cancel)
         self.WaitingWindow.button(QtWidgets.QMessageBox.Cancel).clicked.connect(QtCore.QCoreApplication.instance().quit)
         self.WaitingWindow.setIcon(QtWidgets.QMessageBox.Information)

@@ -54,6 +54,7 @@ class LoginFail(Exception):
 class Account():
     def __init__(self, student_id, pw):
         session = requests.Session()
+        session.trust_env = False
         self.session = self.__loginBB(session, student_id, pw)
         self.student_id = student_id
 
@@ -99,12 +100,15 @@ class CourseList():
 
         mp_list = []
         for i in soup.find_all("a", role="menuitem"):
-            u = regex.findall(i['onclick'])
-            u = u[0].strip("Course%26id%3D")
-            mp_list.append((session, i.text, u))
+            course_name = i.text
+            course_id = regex.findall(i['onclick'])
+            course_id = course_id[0].strip("Course%26id%3D")
+            mp_list.append((session, course_name, course_id))
 
         with multiprocessing.Pool(4) as p:
             course_list = list(p.map(Course, mp_list))
+        # for a, b, c in mp_list:
+        #     course_list.append(Course((a, b, c)))
         return course_list
 
 class Course():
@@ -167,27 +171,28 @@ class MenuList():
         return self.__menu_list[index]
 
     def __getMenuList(self, session, course_id, file_path):
-        course_url = "http://bb.unist.ac.kr/webapps/blackboard/execute/courseMain?task=true&src="
+        course_url = "http://bb.unist.ac.kr/webapps/Bb-mobile-bb_bb60/courseMap?"
         menu_list = []
 
-        course_url = course_url + "&course_id=" + course_id
+        course_url = course_url + "course_id=" + course_id
         html = getHTML(session, course_url)
         soup = BeautifulSoup(html, 'html.parser')
-        for i in soup.select('.courseMenu .clearfix a'):
-            if i.text in MenuList.not_accept_menu:
+        for i in soup.find('map').find_all('map-item', recursive=False):
+            if i['name'] in MenuList.not_accept_menu:
                 continue
-            menu_list.append(Menu(session, i.text, i['href'], file_path))
+            menu_list.append(Menu(session, i['name'], i, file_path))
         return menu_list
 
 class Menu():
-    def __init__(self, session, name, url, file_path):
+    def __init__(self, session, name, soup, file_path):
         self.name = name
-        self.url = url
+        self.soup = soup
+        self.url = soup['viewurl']
         if self.url.find("http://") == -1:
             self.url = "http://bb.unist.ac.kr" + self.url
         self.session = session
         self.file_path = os.path.join(file_path, self.name)
-        self.__file_list = FileList(session, self.url, '', self.file_path)
+        self.__file_list = FileList(session, self.soup, '', self.file_path)
         self.file_num = self.__file_list.num
         self.size = self.__getTotalSize()
 
@@ -232,14 +237,14 @@ class Menu():
             f.write(str(s))
 
 class FileList():
-    def __init__(self, session, menu_url, name, file_path):
+    def __init__(self, session, menu_soup, name, file_path):
         self.name = name
         if self.name == '':
             self.file_path = file_path
         else:
             self.file_path = os.path.join(file_path, self.name)
 
-        self.__file_list = self.__getFileList(session, menu_url, self.file_path)
+        self.__file_list = self.__getFileList(session, menu_soup, self.file_path)
         self.num = len(self.__file_list)
         self.size = self.__getTotalSize()
 
@@ -257,52 +262,29 @@ class FileList():
     def __getitem__(self, index):
         return self.__file_list[index]
 
-    def __getFileList(self, session, menu_url, file_path):
+    def __getFileList(self, session, menu_soup, file_path):
         file_list = []
-        html = getHTML(session, menu_url)
-
-        soup = BeautifulSoup(html, 'html.parser')
-        try:
-            soup = soup.find("div", class_="contentBox")
-
-            attached_s = soup.find_all("ul", class_="attachments clearfix")
-            title_s = soup.select('.item a')
-        except: # 파일이나 파일 리스트가 아니면 에러처리
+        file_soup = menu_soup.find('children')
+        if file_soup == None:
             return []
 
-        if len(attached_s) == 0 and len(title_s) == 0:
-            return []
-
-        for i in attached_s:
-            file_url = "http://bb.unist.ac.kr" + i.li.a["href"]
-            file_url = self.__getFileLastUrl(session, file_url)
-            file_name = i.li.a.text[1:]  # 맨 앞에 띄어쓰기 하나 있어서 지움
-            _file_path = os.path.join(file_path, file_name)
-            file_list.append(File(session, file_name, file_url, _file_path))
-
-        for i in title_s:
-            file_url = "http://bb.unist.ac.kr" + i["href"]
-            file_name = i.text
-
-            last_url = self.__getFileLastUrl(session, file_url)
-            if last_url.find('webapps') != -1:
-                file_list.append(FileList(session, last_url, file_name, self.file_path))
-                continue
-
-            regex = re.compile("\.[^\.]+[\?]")  # ? 있을경우
-            try:
-                filetype = regex.findall(last_url)[0]
-                if filetype[-1] == '?':
-                    filetype = filetype[:-1]
-            except:
-                try:
-                    regex = re.compile("\.[^\.]+")  # ? 없을경우
-                    filetype = regex.findall(last_url)[-1]
-                except:
-                    filetype = ""  # 그래도 없으면 ""
-            file_name += filetype
-            _file_path = os.path.join(file_path, file_name)
-            file_list.append(File(session, file_name, last_url, _file_path))
+        for i in file_soup.find_all('map-item', recursive=False):
+            if i['isfolder'] == 'true':
+                file_url = "http://bb.unist.ac.kr" + i['viewurl']
+                file_name = i['name']
+                _file_path = os.path.join(file_path, file_name)
+                file_list.append(FileList(session, i, file_name, _file_path))
+            else:
+                file_soup = i.find('attachment')
+                if file_soup == None:
+                    continue
+                file_url = "http://bb.unist.ac.kr" + file_soup['url']
+                file_name = file_soup['name']
+                # remove not allowed file character
+                file_name = file_name.replace('/', '').replace('\\', '')
+                _file_path = os.path.join(file_path, file_name)
+                last_file_url = self.__getFileLastUrl(session, file_url)
+                file_list.append(File(session, file_name, last_file_url, _file_path))
 
         return file_list
 
@@ -395,7 +377,8 @@ def getHTML(session, url, data=None):
     count = 0
     while True:
         try:
-            html = session.post(url, stream=True, data=data).text
+            html = session.post(url, stream=False, data=data).text
+
         except:
             if count > 5:
                 errorExitMsg("페이지 가져오기 실패", "HTML 페이지를 가져오는데 실패했습니다.\n\n인터넷 연결을 다시 확인해주세요..")

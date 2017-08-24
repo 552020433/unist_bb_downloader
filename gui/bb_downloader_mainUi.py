@@ -106,8 +106,8 @@ class Ui_MainWindow(object):
     def ProgramAbout(self):
         AboutWindow = QtWidgets.QMessageBox(self.MainWindow)
         AboutWindow.setWindowTitle("BB Downloader 정보")
-        AboutWindow.setText('버전: 1.0<br>라이센스: GPL v3.0<br>이메일: kcm4482@unist.ac.kr<br>Github: \
-        <a href ="https://github.com/kcm4482/unist_bb_downloader">https://github.com/kcm4482/unist_bb_downloader</a>')
+        AboutWindow.setText('버전: 1.1<br>라이센스: GPL v3.0<br>이메일: <a href="mailto:kcm4482@unist.ac.kr">kcm4482@unist.ac.kr</a><br>Github: \
+        <a href="https://github.com/kcm4482/unist_bb_downloader">https://github.com/kcm4482/unist_bb_downloader</a>')
         AboutWindow.setTextInteractionFlags(QtCore.Qt.LinksAccessibleByMouse | QtCore.Qt.TextSelectableByMouse)
         AboutWindow.setStandardButtons(QtWidgets.QMessageBox.Ok)
         AboutWindow.setIcon(QtWidgets.QMessageBox.Information)
@@ -116,7 +116,7 @@ class Ui_MainWindow(object):
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
-        MainWindow.setWindowTitle(_translate('MainWindow', 'BB Downloader v1.0'))
+        MainWindow.setWindowTitle(_translate('MainWindow', 'BB Downloader v1.1'))
         self.downloadButton.setText(_translate('MainWindow', '다운로드!'))
         self.quitButton.setText(_translate('MainWindow', '나가기'))
         self.courseTreeTitle.setText(_translate('MainWindow', '다운로드 가능한 과목'))
