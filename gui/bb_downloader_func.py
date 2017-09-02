@@ -180,6 +180,8 @@ class MenuList():
         for i in soup.find('map').find_all('map-item', recursive=False):
             if i['name'] in MenuList.not_accept_menu:
                 continue
+            if i['linktype'] == "DIVIDER":  # 구분선 제외
+                continue
             menu_list.append(Menu(session, i['name'], i, file_path))
         return menu_list
 
